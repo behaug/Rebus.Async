@@ -34,6 +34,10 @@ namespace Rebus.Async
         {
             var message = context.Load<Message>();
 
+            string messageIntent;
+            if (!message.Headers.TryGetValue(Headers.Intent, out messageIntent))
+                messageIntent = "";
+
             string correlationId;
 
             var hasCorrelationId = message.Headers.TryGetValue(Headers.CorrelationId, out correlationId);
@@ -45,9 +49,12 @@ namespace Rebus.Async
                     var isRequest = message.Headers.ContainsKey(SpecialRequestTag);
                     if (!isRequest)
                     {
-                        // it's the reply!
-                        _messages[correlationId] = new TimedMessage(message);
-                        return;
+                        // it's a reply
+                        string replyKey = $"{correlationId}:{message.Body.GetType().FullName}";
+                        _messages[replyKey] = new TimedMessage(message);
+
+                        if (messageIntent == "p2p")
+                            return;
                     }
                 }
             }
@@ -67,22 +74,21 @@ namespace Rebus.Async
 
         async Task CleanupAbandonedReplies()
         {
-            var messageList = _messages.Values.ToList();
+            var messageList = _messages.ToList();
 
-            var timedMessagesToRemove = messageList
-                .Where(m => m.Age > _replyMaxAge)
+            var itemsToRemove = messageList
+                .Where(m => m.Value.Age > _replyMaxAge)
                 .ToList();
 
-            if (!timedMessagesToRemove.Any()) return;
+            if (!itemsToRemove.Any()) return;
 
-            _log.Info("Found {0} reply messages whose age exceeded {1} - removing them now!",
-                timedMessagesToRemove.Count, _replyMaxAge);
+            _log.Info("Found {0} reply messages whose age exceeded {1} - removing them now!", itemsToRemove.Count, _replyMaxAge);
 
-            foreach (var messageToRemove in timedMessagesToRemove)
+            foreach (var itemToRemove in itemsToRemove)
             {
-                var correlationId = messageToRemove.Message.Headers[Headers.CorrelationId];
+                _log.Debug($"Removing abandoned reply of type {itemToRemove.Value.Message.Body.GetType().FullName}");
                 TimedMessage temp;
-                _messages.TryRemove(correlationId, out temp);
+                _messages.TryRemove(itemToRemove.Key, out temp);
             }
         }
     }

@@ -84,9 +84,10 @@ namespace Rebus.Async
 
             await bus.Send(request, headers);
 
+            string replyKey = $"{correlationId}:{typeof(TReply).FullName}";
             TimedMessage reply;
 
-            while (!Messages.TryRemove(correlationId, out reply))
+            while (!Messages.TryRemove(replyKey, out reply))
             {
                 var elapsed = stopwatch.Elapsed;
 
@@ -94,7 +95,7 @@ namespace Rebus.Async
 
                 if (elapsed > maxWaitTime)
                 {
-                    throw new TimeoutException($"Did not receive reply for request with correlation ID '{correlationId}' within {maxWaitTime} timeout");
+                    throw new TimeoutException($"Did not receive reply for request '{request.GetType().Name}' within {maxWaitTime} timeout");
                 }
             }
 
